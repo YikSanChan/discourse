@@ -149,6 +149,30 @@ describe Jobs::UserEmail do
       )
     end
 
+    it "sends an email with no gsub substitution bugs" do
+      upload = Fabricate(:upload)
+
+      post.update!(raw: <<~RAW)
+      This is a test post
+
+      With a \\0 \\1 \\2 in it
+      RAW
+      Jobs::UserEmail.new.execute(
+        type: :user_private_message,
+        user_id: user.id,
+        post_id: post.id,
+        notification_id: notification.id
+      )
+
+      email = ActionMailer::Base.deliveries.first
+
+      expect(email.to).to contain_exactly(user.email)
+
+      html_part = email.parts.find { |x| x.content_type.include? "html" }
+      expect(html_part.body.to_s).to_not include('%{email_content}')
+      expect(html_part.body.to_s).to include('\0')
+    end
+
     it "sends an email by default for a PM to a user that's been recently seen" do
       upload = Fabricate(:upload)
 
@@ -315,6 +339,15 @@ describe Jobs::UserEmail do
 
       context "when the change was requested by the user" do
         let(:requested_by) { user }
+        it "passes along false for the requested_by_admin param which changes the wording in the email" do
+          Jobs::UserEmail.new.execute(type: :confirm_new_email, user_id: user.id, email_token: email_token.token)
+          mail = ActionMailer::Base.deliveries.first
+          expect(mail.body).not_to include("This email change was requested by a site admin.")
+        end
+      end
+
+      context "when requested_by record is not present" do
+        let(:requested_by) { nil }
         it "passes along false for the requested_by_admin param which changes the wording in the email" do
           Jobs::UserEmail.new.execute(type: :confirm_new_email, user_id: user.id, email_token: email_token.token)
           mail = ActionMailer::Base.deliveries.first

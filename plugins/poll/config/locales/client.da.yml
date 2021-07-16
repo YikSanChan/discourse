@@ -27,6 +27,15 @@ da:
           title: "Resultaterne vises kun for <strong>personale</strong> medlemmer."
       multiple:
         help:
+          at_least_min_options:
+            one: "Vælg mindst <strong>%{count}</strong> mulighed."
+            other: "Vælg mindst <strong>%{count}</strong> muligheder."
+          up_to_max_options:
+            one: "Vælg op til <strong>%{count}</strong> mulighed."
+            other: "Vælg op til <strong>%{count}</strong> muligheder."
+          x_options:
+            one: "Vælg <strong>%{count}</strong> mulighed."
+            other: "Vælg <strong>%{count}</strong> muligheder."
           between_min_and_max_options: "Vælg mellem <strong>%{min}</strong> og <strong>%{max}</strong> muligheder."
       cast-votes:
         title: "Afgiv dine stemmer"
@@ -68,7 +77,10 @@ da:
         title: Opret afstemning
         insert: Indsæt afstemning
         help:
-          options_count: Indtast mindst 1 valgmulighed
+          options_min_count: Indtast mindst 1 valgmulighed.
+          options_max_count: Indtast højst %{count} muligheder.
+          invalid_min_value: Minimumsværdien skal være mindst 1.
+          invalid_max_value: Maksimumsværdien skal være mindst 1, men mindre end eller lig med antallet af valgmuligheder.
           invalid_values: Minimumsværdien skal være mindre end maksimumsværdien.
           min_step_value: Den mindste trinværdi er 1
         poll_type:
@@ -77,26 +89,19 @@ da:
           multiple: Flere valg
           number: Nummerbedømmelse
         poll_result:
-          label: Resultater
+          label: Vis Resultater...
           always: Altid synlig
-          vote: Ved afstemning
-          closed: Når lukket
           staff: Kun personale
-        poll_groups:
-          label: Tilladte grupper
         poll_chart_type:
-          label: Diagramtype
           bar: Bar
           pie: Tærte
         poll_config:
-          max: Maks
-          min: Min
           step: Trin
         poll_public:
           label: Vis hvem der stemte
         poll_title:
           label: Titel (valgfrit)
-        poll_options:
-          label: Indtast en valgmulighed per linje
         automatic_close:
           label: Luk afstemning automatisk
+        show_advanced: "Vis Avancerede Indstillinger"
+        hide_advanced: "Skjul Avancerede Indstillinger"

@@ -354,7 +354,7 @@ class Guardian
     return false if !authenticated?
 
     invites_available = SiteSetting.max_invites_per_day.to_i.positive?
-    trust_level_requirement_met = !SiteSetting.must_approve_users? && @user.has_trust_level?(SiteSetting.min_trust_level_to_allow_invite.to_i)
+    trust_level_requirement_met = @user.has_trust_level?(SiteSetting.min_trust_level_to_allow_invite.to_i)
 
     if !is_staff?
       return false if !invites_available
@@ -372,7 +372,8 @@ class Guardian
     return false unless authenticated?
     is_topic = object.is_a?(Topic)
     return true if is_admin? && !is_topic
-    return false if (SiteSetting.max_invites_per_day.to_i == 0 && !is_staff?)
+    return false if SiteSetting.max_invites_per_day.to_i == 0 && !is_staff?
+    return false if SiteSetting.must_approve_users? && !is_staff?
     return false unless can_see?(object)
     return false if groups.present?
 
@@ -445,18 +446,13 @@ class Guardian
 
   def can_send_private_messages_to_email?
     # Staged users must be enabled to create a temporary user.
-    SiteSetting.enable_staged_users &&
+    return false if !SiteSetting.enable_staged_users
     # User is authenticated
-    authenticated? &&
+    return false if !authenticated?
     # User is trusted enough
-    (is_staff? ||
-      (
-        # TODO: 2019 evaluate if we need this flexibility
-        # perhaps we enable this unconditionally to TL4?
-        @user.has_trust_level?(SiteSetting.min_trust_to_send_email_messages) &&
-        SiteSetting.enable_personal_email_messages
-      )
-    )
+    return is_admin? if SiteSetting.min_trust_to_send_email_messages.to_s == 'admin'
+    return is_staff? if SiteSetting.min_trust_to_send_email_messages.to_s == 'staff'
+    SiteSetting.enable_personal_messages && @user.has_trust_level?(SiteSetting.min_trust_to_send_email_messages.to_i)
   end
 
   def can_export_entity?(entity)
@@ -532,6 +528,10 @@ class Guardian
 
   def can_see_about_stats?
     true
+  end
+
+  def can_see_site_contact_details?
+    !SiteSetting.login_required? || authenticated?
   end
 
   def auth_token

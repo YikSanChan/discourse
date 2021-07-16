@@ -86,10 +86,6 @@ class Plugin::Instance
     [].tap { |plugins|
       # also follows symlinks - http://stackoverflow.com/q/357754
       Dir["#{parent_path}/*/plugin.rb"].sort.each do |path|
-
-        # tagging is included in core, so don't load it
-        next if path =~ /discourse-tagging/
-
         source = File.read(path)
         metadata = Plugin::Metadata.parse(source)
         plugins << self.new(metadata, path)
@@ -204,6 +200,14 @@ class Plugin::Instance
   #   end
   def register_search_advanced_filter(trigger, &block)
     Search.advanced_filter(trigger, &block)
+  end
+
+  # Allows to define TopicView posts filters. Example usage:
+  #   TopicView.advanced_filter do |posts, opts|
+  #     posts.where(wiki: true)
+  #   end
+  def register_topic_view_posts_filter(trigger, &block)
+    TopicView.add_custom_filter(trigger, &block)
   end
 
   # Allow to eager load additional tables in Search. Useful to avoid N+1 performance problems.
@@ -367,6 +371,14 @@ class Plugin::Instance
     delete_extra_automatic_assets(paths)
 
     assets
+  end
+
+  def add_directory_column(column_name, query:, icon: nil)
+    validate_directory_column_name(column_name)
+
+    DiscourseEvent.on("before_directory_refresh") do
+      DirectoryColumn.find_or_create_plugin_directory_column(column_name: column_name, icon: icon, query: query)
+    end
   end
 
   def delete_extra_automatic_assets(good_paths)
@@ -585,11 +597,10 @@ class Plugin::Instance
     end
   end
 
-  # note, we need to be able to parse seperately to activation.
+  # note, we need to be able to parse separately to activation.
   # this allows us to present information about a plugin in the UI
   # prior to activations
   def activate!
-
     if @path
       root_dir_name = File.dirname(@path)
 
@@ -751,7 +762,7 @@ class Plugin::Instance
       root_path = "#{File.dirname(@path)}/assets/javascripts"
       admin_path = "#{File.dirname(@path)}/admin/assets/javascripts"
 
-      Dir.glob(["#{root_path}/**/*", "#{admin_path}/**/*"]) do |f|
+      Dir.glob(["#{root_path}/**/*", "#{admin_path}/**/*"]).sort.each do |f|
         f_str = f.to_s
         if File.directory?(f)
           yield [f, true]
@@ -810,7 +821,7 @@ class Plugin::Instance
   end
 
   # Register a new UserApiKey scope, and its allowed routes. Scope will be prefixed
-  # with the (parametetized) plugin name followed by a colon.
+  # with the (parameterized) plugin name followed by a colon.
   #
   # For example, if discourse-awesome-plugin registered this:
   #
@@ -959,6 +970,11 @@ class Plugin::Instance
   end
 
   private
+
+  def validate_directory_column_name(column_name)
+    match = /^[_a-z]+$/.match(column_name)
+    raise "Invalid directory column name '#{column_name}'. Can only contain a-z and underscores" unless match
+  end
 
   def write_asset(path, contents)
     unless File.exists?(path)

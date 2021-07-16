@@ -415,10 +415,11 @@ describe PostsController do
       end
 
       it "updates post's raw attribute" do
-        put "/posts/#{post.id}.json", params: update_params
+        put "/posts/#{post.id}.json", params: { post: { raw: 'edited body   ' } }
 
         expect(response.status).to eq(200)
-        expect(post.reload.raw).to eq(update_params[:post][:raw])
+        expect(response.parsed_body['post']['raw']).to eq('edited body')
+        expect(post.reload.raw).to eq('edited body')
       end
 
       it "extracts links from the new body" do
@@ -577,7 +578,7 @@ describe PostsController do
       before do
         Fabricate(:bookmark, user: user, post: Fabricate(:post, topic: post.topic), topic: post.topic)
       end
-      it "marks topic_bookmaked as true" do
+      it "marks topic_bookmarked as true" do
         delete "/posts/#{post.id}/bookmark.json"
         expect(response.parsed_body['topic_bookmarked']).to eq(true)
       end
@@ -907,6 +908,28 @@ describe PostsController do
         expect(user).to be_silenced
       end
 
+      it 'silences correctly based on silence watched words' do
+        SiteSetting.watched_words_regular_expressions = true
+        WatchedWord.create!(action: WatchedWord.actions[:silence], word: 'I love candy')
+        WatchedWord.create!(action: WatchedWord.actions[:silence], word: 'i eat s[1-5]')
+
+        post "/posts.json", params: {
+          raw: 'this is the test content',
+          title: 'when I eat s3 sometimes when not looking'
+        }
+
+        expect(response.status).to eq(200)
+        parsed = response.parsed_body
+
+        expect(parsed["action"]).to eq("enqueued")
+        reviewable = ReviewableQueuedPost.find_by(created_by: user)
+        score = reviewable.reviewable_scores.first
+        expect(score.reason).to eq('auto_silence_regex')
+
+        user.reload
+        expect(user).to be_silenced
+      end
+
       it "can send a message to a group" do
         group = Group.create(name: 'test_group', messageable_level: Group::ALIAS_LEVELS[:nobody])
         user1 = user
@@ -966,7 +989,7 @@ describe PostsController do
 
       it "returns the nested post with a param" do
         post "/posts.json", params: {
-          raw: 'this is the test content',
+          raw: 'this is the test content  ',
           title: 'this is the test title for the topic',
           nested_post: true
         }
@@ -974,6 +997,7 @@ describe PostsController do
         expect(response.status).to eq(200)
         parsed = response.parsed_body
         expect(parsed['post']).to be_present
+        expect(parsed['post']['raw']).to eq('this is the test content')
         expect(parsed['post']['cooked']).to be_present
       end
 
@@ -1903,7 +1927,7 @@ describe PostsController do
   end
 
   describe '#cooked' do
-    it 'returns the cooked conent' do
+    it 'returns the cooked content' do
       post = Fabricate(:post, cooked: "WAt")
       get "/posts/#{post.id}/cooked.json"
 

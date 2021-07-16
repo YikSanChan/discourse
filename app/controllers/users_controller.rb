@@ -112,6 +112,7 @@ class UsersController < ApplicationController
                                               :user_profile,
                                               :card_background_upload,
                                               :primary_group,
+                                              :flair_group,
                                               :primary_email
                                             )
 
@@ -285,11 +286,10 @@ class UsersController < ApplicationController
     guardian.ensure_can_edit!(user)
 
     ActiveRecord::Base.transaction do
-      if email = user.user_emails.find_by(email: params[:email], primary: false)
-        email.destroy
-        DiscourseEvent.trigger(:user_updated, user)
-      elsif change_requests = user.email_change_requests.where(new_email: params[:email]).presence
+      if change_requests = user.email_change_requests.where(new_email: params[:email]).presence
         change_requests.destroy_all
+      elsif user.user_emails.where(email: params[:email], primary: false).destroy_all.present?
+        DiscourseEvent.trigger(:user_updated, user)
       else
         return render json: failed_json, status: 428
       end
@@ -309,7 +309,9 @@ class UsersController < ApplicationController
     guardian.ensure_can_edit!(user)
 
     report = TopicTrackingState.report(user)
-    serializer = ActiveModel::ArraySerializer.new(report, each_serializer: TopicTrackingStateSerializer)
+    serializer = ActiveModel::ArraySerializer.new(
+      report, each_serializer: TopicTrackingStateSerializer, scope: guardian
+    )
 
     render json: MultiJson.dump(serializer)
   end
@@ -710,6 +712,7 @@ class UsersController < ApplicationController
   def password_reset_show
     expires_now
     token = params[:token]
+
     password_reset_find_user(token, committing_change: false)
 
     if !@error
@@ -1075,6 +1078,7 @@ class UsersController < ApplicationController
      groups: @groups
     }
 
+    options[:include_staged_users] = !!ActiveModel::Type::Boolean.new.cast(params[:include_staged_users])
     options[:topic_id] = topic_id if topic_id
     options[:category_id] = category_id if category_id
 
@@ -1129,11 +1133,9 @@ class UsersController < ApplicationController
 
     if type.blank? || type == 'system'
       upload_id = nil
+    elsif !SiteSetting.allow_uploaded_avatars
+      return render json: failed_json, status: 422
     else
-      if !SiteSetting.allow_uploaded_avatars
-        return render json: failed_json, status: 422
-      end
-
       upload_id = params[:upload_id]
       upload = Upload.find_by(id: upload_id)
 
@@ -1151,6 +1153,10 @@ class UsersController < ApplicationController
       else
         user.user_avatar.custom_upload_id = upload_id
       end
+    end
+
+    if user.is_system_user?
+      SiteSetting.use_site_small_logo_as_system_avatar = false
     end
 
     user.uploaded_avatar_id = upload_id
@@ -1187,6 +1193,11 @@ class UsersController < ApplicationController
     end
 
     user.uploaded_avatar_id = upload.id
+
+    if user.is_system_user?
+      SiteSetting.use_site_small_logo_as_system_avatar = false
+    end
+
     user.save!
 
     avatar = user.user_avatar || user.create_user_avatar
@@ -1622,6 +1633,7 @@ class UsersController < ApplicationController
       :profile_background_upload_url,
       :card_background_upload_url,
       :primary_group_id,
+      :flair_group_id,
       :featured_topic_id
     ]
 

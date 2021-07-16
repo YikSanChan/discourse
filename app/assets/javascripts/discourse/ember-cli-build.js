@@ -8,6 +8,7 @@ const prettyTextEngine = require("./lib/pretty-text-engine");
 const { createI18nTree } = require("./lib/translation-plugin");
 const discourseScss = require("./lib/discourse-scss");
 const funnel = require("broccoli-funnel");
+const AssetRev = require("broccoli-asset-rev");
 
 module.exports = function (defaults) {
   let discourseRoot = resolve("../../../..");
@@ -20,13 +21,29 @@ module.exports = function (defaults) {
     },
   });
 
+  // Ember CLI does this by default for the app tree, but for our extra bundles we
+  // need to do it ourselves in production mode.
+  const isProduction = EmberApp.env().includes("production");
+  function digest(tree) {
+    return isProduction ? new AssetRev(tree) : tree;
+  }
+
   // WARNING: We should only import scripts here if they are not in NPM.
   // For example: our very specific version of bootstrap-modal.
   app.import(vendorJs + "bootbox.js");
   app.import(vendorJs + "bootstrap-modal.js");
   app.import(vendorJs + "jquery.ui.widget.js");
   app.import(vendorJs + "jquery.fileupload.js");
+  app.import(vendorJs + "jquery.fileupload-process.js");
   app.import(vendorJs + "jquery.autoellipsis-1.0.10.js");
+  app.import(vendorJs + "show-html.js");
+  app.import("node_modules/ember-source/dist/ember-template-compiler.js", {
+    type: "test",
+  });
+
+  let adminVendor = funnel(vendorJs, {
+    files: ["resumable.js"],
+  });
 
   return mergeTrees([
     discourseScss(`${discourseRoot}/app/assets/stylesheets`, "testem.scss"),
@@ -37,9 +54,11 @@ module.exports = function (defaults) {
       files: ["highlight-test-bundle.min.js"],
       destDir: "assets/highlightjs",
     }),
-    concat(app.options.adminTree, {
-      outputFile: `assets/admin.js`,
-    }),
-    prettyTextEngine(vendorJs, "discourse-markdown"),
+    digest(
+      concat(mergeTrees([app.options.adminTree, adminVendor]), {
+        outputFile: `assets/admin.js`,
+      })
+    ),
+    digest(prettyTextEngine(vendorJs, "discourse-markdown")),
   ]);
 };

@@ -73,7 +73,7 @@
   .modal-close {
     order: 2;
     margin-left: auto;
-    padding-left: 2em;
+
     .close {
       color: var(--primary-high);
     }
@@ -108,21 +108,6 @@
   to {
     opacity: 0.9;
   }
-}
-
-// slide in
-@keyframes slidein {
-  from {
-    transform: translateY(-20%);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-
-.create-account.in .modal-inner-container,
-.login-modal.in .modal-inner-container {
-  animation: slidein 0.3s;
 }
 
 .inline-modal {
@@ -445,8 +430,7 @@
   max-width: 420px;
 }
 
-.change-timestamp,
-.poll-ui-builder {
+.change-timestamp {
   #date-container {
     .pika-single {
       position: relative !important; // overriding another important
@@ -493,10 +477,14 @@
   }
   .modal-body {
     overflow-y: visible;
-    #post-jump,
-    .date-picker {
+    #post-jump {
       margin: 0;
       width: 100px;
+    }
+
+    .date-picker {
+      margin: 0;
+      width: 180px;
     }
 
     .input-hint-text {
@@ -507,8 +495,13 @@
       color: var(--primary-medium);
     }
 
-    .jump-to-date-control .input-hint-text {
-      margin-left: 0;
+    .jump-to-date-control {
+      display: flex;
+      align-items: center;
+      .input-hint-text {
+        margin-left: 0;
+        margin-right: 0.5em;
+      }
     }
 
     .separator {
@@ -845,9 +838,10 @@
   }
 }
 
-.create-invite-modal {
+.create-invite-modal,
+.share-topic-modal {
   .input-group {
-    margin-bottom: 1em;
+    margin-bottom: 0.5em;
 
     &:last-child {
       margin-bottom: 0;
@@ -855,41 +849,49 @@
 
     input[type="text"] {
       width: 100%;
-
-      &.invite-link,
-      &#invite-email {
-        width: 85%;
-      }
-    }
-  }
-
-  .radio-group {
-    input[type="radio"] {
-      display: inline;
-      vertical-align: middle;
-      margin-top: -1px;
     }
 
-    label {
-      display: inline-block;
+    textarea#invite-message,
+    &.invite-to-topic input[type="text"],
+    .group-chooser,
+    .user-chooser,
+    .future-date-input-selector {
+      width: 100%;
     }
-  }
 
-  .group-chooser,
-  .future-date-input-selector {
-    width: 100%;
+    &.invite-to-topic input[type="radio"] {
+      margin-left: 10px;
+    }
+
+    label .d-icon {
+      color: var(--primary-medium);
+      margin-right: 10px;
+    }
   }
 
   .input-group input[type="text"],
   .input-group .btn,
-  .future-date-input .select-kit-header,
-  .control-group:nth-child(2) input,
-  .control-group:nth-child(3) input {
+  .user-chooser .select-kit-header,
+  .future-date-input .select-kit-header {
     height: 34px;
   }
 
-  .input-group .btn {
-    vertical-align: top;
+  .invite-input-with-button {
+    display: flex;
+
+    .btn {
+      margin-left: 3px;
+    }
+  }
+
+  .input-group.input-expires-at,
+  .input-group.input-email,
+  .input-group.invite-max-redemptions {
+    margin-bottom: 0;
+
+    input[type="text"] {
+      width: unset;
+    }
   }
 
   .future-date-input {
@@ -912,6 +914,25 @@
     }
   }
 
+  .input-group.input-email {
+    align-items: baseline;
+    display: flex;
+
+    label {
+      display: inline;
+    }
+
+    .invite-input-with-button {
+      display: inline-flex;
+      flex: 1;
+
+      input[type="text"] {
+        flex: 1;
+        margin-left: 5px;
+      }
+    }
+  }
+
   .invite-max-redemptions {
     label {
       display: inline;
@@ -920,5 +941,73 @@
     input {
       width: 80px;
     }
+  }
+
+  .invite-to-topic {
+    #choose-topic-title {
+      margin-bottom: 0;
+    }
+  }
+
+  .show-advanced {
+    margin-left: auto;
+    margin-right: 0;
+  }
+}
+
+.create-invite-modal {
+  .input-group {
+    textarea#invite-message,
+    &.invite-to-topic input[type="text"],
+    .group-chooser,
+    .user-chooser,
+    .future-date-input-selector {
+      margin-left: 25px;
+      width: calc(100% - 25px);
+    }
+  }
+}
+
+.share-topic-modal {
+  form {
+    margin-bottom: 0;
+  }
+  .sources {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    button {
+      margin-right: 0.5em;
+      margin-bottom: 0.5em;
+    }
+  }
+
+  .share-twitter {
+    .d-icon {
+      color: var(--twitter);
+    }
+  }
+  .share-facebook {
+    .d-icon {
+      color: var(--facebook);
+    }
+  }
+
+  .invite-users {
+    margin: 1em 0;
+  }
+}
+
+.group-add-members-modal {
+  .input-group {
+    margin-bottom: 0.5em;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  .user-chooser {
+    width: calc(100%);
   }
 }

@@ -22,11 +22,15 @@ export default Controller.extend(
   NameValidation,
   UserFieldsValidation,
   {
+    queryParams: ["t"],
+
     createAccount: controller(),
 
     invitedBy: readOnly("model.invited_by"),
     email: alias("model.email"),
+    accountEmail: alias("email"),
     hiddenEmail: alias("model.hidden_email"),
+    emailVerifiedByLink: alias("model.email_verified_by_link"),
     accountUsername: alias("model.username"),
     passwordRequired: notEmpty("accountPassword"),
     successMessage: null,
@@ -125,14 +129,16 @@ export default Controller.extend(
       "rejectedEmails.[]",
       "authOptions.email",
       "authOptions.email_valid",
-      "hiddenEmail"
+      "hiddenEmail",
+      "emailVerifiedByLink"
     )
     emailValidation(
       email,
       rejectedEmails,
       externalAuthEmail,
       externalAuthEmailValid,
-      hiddenEmail
+      hiddenEmail,
+      emailVerifiedByLink
     ) {
       if (hiddenEmail) {
         return EmberObject.create({
@@ -155,12 +161,12 @@ export default Controller.extend(
         });
       }
 
-      if (externalAuthEmail) {
+      if (externalAuthEmail && externalAuthEmailValid) {
         const provider = this.createAccount.authProviderDisplayName(
           this.get("authOptions.auth_provider")
         );
 
-        if (externalAuthEmail === email && externalAuthEmailValid) {
+        if (externalAuthEmail === email) {
           return EmberObject.create({
             ok: true,
             reason: I18n.t("user.email.authenticated", {
@@ -175,6 +181,13 @@ export default Controller.extend(
             }),
           });
         }
+      }
+
+      if (emailVerifiedByLink) {
+        return EmberObject.create({
+          ok: true,
+          reason: I18n.t("user.email.authenticated_by_invite"),
+        });
       }
 
       if (emailValid(email)) {
@@ -216,6 +229,8 @@ export default Controller.extend(
 
         if (this.isInviteLink) {
           data.email = this.email;
+        } else {
+          data.email_token = this.t;
         }
 
         ajax({

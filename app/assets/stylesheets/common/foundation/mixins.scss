@@ -194,3 +194,19 @@ $breakpoints: (
     @return "dark";
   }
 }
+
+@function absolute-image-url($path) {
+  // public_image_path is added by the stylesheet importer
+  // it returns a CDN or subfolder path (if applicable).
+  // SCSS will compile (and return the relative path) if public_image_path is missing.
+  @if variable-exists(public_image_path) {
+    @if (str-index("#{$path}", "/plugins") == 1) {
+      $plugin_asset_path: str-replace($public_image_path, "/images", "");
+      @return url("#{$plugin_asset_path}#{$path}");
+    } @else {
+      @return url("#{$public_image_path}#{$path}");
+    }
+  } @else {
+    @return url("#{$path}");
+  }
+}

@@ -6,6 +6,8 @@ require 'stylesheet/compiler'
 describe Stylesheet::Compiler do
   describe 'compilation' do
     Dir["#{Rails.root.join("app/assets/stylesheets")}/*.scss"].each do |path|
+      next if path =~ /ember_cli/
+
       path = File.basename(path, '.scss')
 
       it "can compile '#{path}' css" do
@@ -85,6 +87,45 @@ describe Stylesheet::Compiler do
 
     expect(css).to include("url('/favicons/github.png')")
     expect(css).not_to include('image-url')
+  end
+
+  it "supports absolute-image-url" do
+    scss = Stylesheet::Importer.new({}).prepended_scss
+    scss += ".body{background-image: absolute-image-url('/favicons/github.png');}"
+    css, _map = Stylesheet::Compiler.compile(scss, "test.scss")
+
+    expect(css).to include('url("http://test.localhost/images/favicons/github.png")')
+    expect(css).not_to include('absolute-image-url')
+  end
+
+  it "supports absolute-image-url in subfolder" do
+    set_subfolder "/subfo"
+    scss = Stylesheet::Importer.new({}).prepended_scss
+    scss += ".body{background-image: absolute-image-url('/favicons/github.png');}"
+    css, _map = Stylesheet::Compiler.compile(scss, "test2.scss")
+
+    expect(css).to include('url("http://test.localhost/subfo/images/favicons/github.png")')
+    expect(css).not_to include('absolute-image-url')
+  end
+
+  it "supports absolute-image-url with CDNs" do
+    set_cdn_url "https://awesome.com"
+    scss = Stylesheet::Importer.new({}).prepended_scss
+    scss += ".body{background-image: absolute-image-url('/favicons/github.png');}"
+    css, _map = Stylesheet::Compiler.compile(scss, "test2.scss")
+
+    expect(css).to include('url("https://awesome.com/images/favicons/github.png")')
+    expect(css).not_to include('absolute-image-url')
+  end
+
+  it "supports absolute-image-url in plugins" do
+    set_cdn_url "https://awesome.com"
+    scss = Stylesheet::Importer.new({}).prepended_scss
+    scss += ".body{background-image: absolute-image-url('/plugins/discourse-special/images/somefile.png');}"
+    css, _map = Stylesheet::Compiler.compile(scss, "discourse-special.scss")
+
+    expect(css).to include('url("https://awesome.com/plugins/discourse-special/images/somefile.png")')
+    expect(css).not_to include('absolute-image-url')
   end
 
   context "with a color scheme" do

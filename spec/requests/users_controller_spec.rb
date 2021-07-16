@@ -64,6 +64,7 @@ describe UsersController do
     context 'valid token' do
       context 'welcome message' do
         it 'enqueues a welcome message if the user object indicates so' do
+          SiteSetting.send_welcome_message = true
           user.update(active: false)
           put "/u/activate-account/#{token}"
           expect(response.status).to eq(200)
@@ -230,7 +231,7 @@ describe UsersController do
         end
 
         expect(events.map { |event| event[:event_name] }).to contain_exactly(
-          :user_logged_in, :user_first_logged_in
+          :user_logged_in, :user_first_logged_in, :user_confirmed_email
         )
 
         expect(response.status).to eq(200)
@@ -324,7 +325,6 @@ describe UsersController do
 
       context "rate limiting" do
         before { RateLimiter.clear_all!; RateLimiter.enable }
-        after  { RateLimiter.disable }
 
         it "rate limits reset passwords" do
           freeze_time
@@ -634,7 +634,7 @@ describe UsersController do
         post "/u.json", params: {
           name: @user.name,
           username: @user.username,
-          password: 'tesing12352343'
+          password: 'testing12352343'
         }
         expect(response.status).to eq(400)
       end
@@ -1370,7 +1370,7 @@ describe UsersController do
     end
 
     context 'while logged in' do
-      let(:old_username) { "OrigUsrname" }
+      let(:old_username) { "OrigUsername" }
       let(:new_username) { "#{old_username}1234" }
       let(:user) { Fabricate(:user, username: old_username) }
 
@@ -2393,6 +2393,20 @@ describe UsersController do
         expect(user.reload.uploaded_avatar_id).to eq(nil)
       end
 
+      it 'disables the use_site_small_logo_as_system_avatar setting when picking an avatar for the system user' do
+        system_user = Discourse.system_user
+        SiteSetting.use_site_small_logo_as_system_avatar = true
+        another_upload = Fabricate(:upload, user: system_user)
+        sign_in(system_user)
+
+        put "/u/#{system_user.username}/preferences/avatar/pick.json", params: {
+          upload_id: another_upload.id, type: "uploaded"
+        }
+
+        expect(response.status).to eq(200)
+        expect(SiteSetting.use_site_small_logo_as_system_avatar).to eq(false)
+      end
+
       it 'can successfully pick a gravatar' do
 
         user.user_avatar.update_columns(gravatar_upload_id: upload.id)
@@ -2484,7 +2498,7 @@ describe UsersController do
             expect(user.user_avatar.reload.custom_upload_id).to eq(avatar1.id)
           end
 
-          it 'can succesfully select an avatar using a cooked URL' do
+          it 'can successfully select an avatar using a cooked URL' do
             events = DiscourseEvent.track_events do
               put "/u/#{user.username}/preferences/avatar/select.json", params: { url: UrlHelper.cook_url(avatar1.url) }
             end
@@ -2493,6 +2507,19 @@ describe UsersController do
             expect(response.status).to eq(200)
             expect(user.reload.uploaded_avatar_id).to eq(avatar1.id)
             expect(user.user_avatar.reload.custom_upload_id).to eq(avatar1.id)
+          end
+
+          it 'disables the use_site_small_logo_as_system_avatar setting when picking an avatar for the system user' do
+            system_user = Discourse.system_user
+            SiteSetting.use_site_small_logo_as_system_avatar = true
+            sign_in(system_user)
+
+            put "/u/#{system_user.username}/preferences/avatar/select.json", params: {
+              url: UrlHelper.cook_url(avatar1.url)
+            }
+
+            expect(response.status).to eq(200)
+            expect(SiteSetting.use_site_small_logo_as_system_avatar).to eq(false)
           end
         end
       end
@@ -2871,16 +2898,29 @@ describe UsersController do
       expect(event[:params].first).to eq(user)
     end
 
-    it "can destroy duplicate emails" do
-      EmailChangeRequest.create!(
+    it "can destroy unconfirmed emails" do
+      request_1 = EmailChangeRequest.create!(
         user: user,
-        new_email: user.email,
+        new_email: user_email.email,
         change_state: EmailChangeRequest.states[:authorizing_new]
       )
 
-      delete "/u/#{user.username}/preferences/email.json", params: { email: user_email.email }
+      EmailChangeRequest.create!(
+        user: user,
+        new_email: other_email.email,
+        change_state: EmailChangeRequest.states[:authorizing_new]
+      )
 
-      expect(user.email_change_requests).to be_empty
+      EmailChangeRequest.create!(
+        user: user,
+        new_email: other_email.email,
+        change_state: EmailChangeRequest.states[:authorizing_new]
+      )
+
+      delete "/u/#{user.username}/preferences/email.json", params: { email: other_email.email }
+
+      expect(user.user_emails.pluck(:email)).to contain_exactly(user_email.email, other_email.email)
+      expect(user.email_change_requests).to contain_exactly(request_1)
     end
   end
 
@@ -3042,6 +3082,54 @@ describe UsersController do
 
         get "/u/#{user.username_lower}/summary.json"
         expect(response.status).to eq(200)
+      end
+    end
+
+    context 'avatar flair in Most... sections' do
+      it "returns data for automatic groups flair" do
+        liker = Fabricate(:user, admin: true, moderator: true, trust_level: 1)
+        create_and_like_post(user, liker)
+
+        get "/u/#{user.username_lower}/summary.json"
+        json = response.parsed_body
+
+        expect(json["user_summary"]["most_liked_by_users"][0]["admin"]).to eq(true)
+        expect(json["user_summary"]["most_liked_by_users"][0]["moderator"]).to eq(true)
+        expect(json["user_summary"]["most_liked_by_users"][0]["trust_level"]).to eq(1)
+      end
+
+      it "returns data for flair when an icon is used" do
+        group = Fabricate(:group, name: "Groupie", flair_bg_color: "#111111", flair_color: "#999999", flair_icon: "icon")
+        liker = Fabricate(:user, flair_group: group)
+        create_and_like_post(user, liker)
+
+        get "/u/#{user.username_lower}/summary.json"
+        json = response.parsed_body
+
+        expect(json["user_summary"]["most_liked_by_users"][0]["flair_name"]).to eq("Groupie")
+        expect(json["user_summary"]["most_liked_by_users"][0]["flair_url"]).to eq("icon")
+        expect(json["user_summary"]["most_liked_by_users"][0]["flair_bg_color"]).to eq("#111111")
+        expect(json["user_summary"]["most_liked_by_users"][0]["flair_color"]).to eq("#999999")
+      end
+
+      it "returns data for flair when an image is used" do
+        upload = Fabricate(:upload)
+        group = Fabricate(:group, name: "Groupie", flair_bg_color: "#111111", flair_upload: upload)
+        liker = Fabricate(:user, flair_group: group)
+        create_and_like_post(user, liker)
+
+        get "/u/#{user.username_lower}/summary.json"
+        json = response.parsed_body
+
+        expect(json["user_summary"]["most_liked_by_users"][0]["flair_name"]).to eq("Groupie")
+        expect(json["user_summary"]["most_liked_by_users"][0]["flair_url"]).to eq(upload.url)
+        expect(json["user_summary"]["most_liked_by_users"][0]["flair_bg_color"]).to eq("#111111")
+      end
+
+      def create_and_like_post(likee, liker)
+        UserActionManager.enable
+        post = create_post(user: likee)
+        PostActionCreator.like(liker, post)
       end
     end
   end
@@ -3644,6 +3732,7 @@ describe UsersController do
     fab!(:topic) { Fabricate :topic }
     let(:user)  { Fabricate :user, username: "joecabot", name: "Lawrence Tierney" }
     let(:post1) { Fabricate(:post, user: user, topic: topic) }
+    let(:staged_user) { Fabricate(:user, staged: true) }
 
     before do
       SearchIndexer.enable
@@ -3911,6 +4000,26 @@ describe UsersController do
         def users_found
           response.parsed_body['users'].map { |u| u['username'] }
         end
+      end
+    end
+
+    context '`include_staged_users`' do
+      it "includes staged users when the param is true" do
+        get "/u/search/users.json", params: { term: staged_user.name, include_staged_users: true }
+        json = response.parsed_body
+        expect(json["users"].map { |u| u["name"] }).to include(staged_user.name)
+      end
+
+      it "doesn't include staged users when the param is not passed" do
+        get "/u/search/users.json", params: { term: staged_user.name }
+        json = response.parsed_body
+        expect(json["users"].map { |u| u["name"] }).not_to include(staged_user.name)
+      end
+
+      it "doesn't include staged users when the param explicitly set to false" do
+        get "/u/search/users.json", params: { term: staged_user.name, include_staged_users: false }
+        json = response.parsed_body
+        expect(json["users"].map { |u| u["name"] }).not_to include(staged_user.name)
       end
     end
   end

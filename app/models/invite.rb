@@ -18,8 +18,6 @@ class Invite < ActiveRecord::Base
 
   rate_limit :limit_invites_per_day
 
-  belongs_to :user
-  belongs_to :topic
   belongs_to :invited_by, class_name: 'User'
 
   has_many :invited_users
@@ -35,8 +33,14 @@ class Invite < ActiveRecord::Base
   validate :user_doesnt_already_exist
 
   before_create do
-    self.invite_key ||= SecureRandom.hex
+    self.invite_key ||= SecureRandom.base58(10)
     self.expires_at ||= SiteSetting.invite_expiry_days.days.from_now
+  end
+
+  before_save do
+    if will_save_change_to_email?
+      self.email_token = email.present? ? SecureRandom.hex : nil
+    end
   end
 
   before_validation do
@@ -56,7 +60,7 @@ class Invite < ActiveRecord::Base
 
     if user && user.id != self.invited_users&.first&.user_id
       @email_already_exists = true
-      errors.add(:email, I18n.t(
+      errors.add(:base, I18n.t(
         "invite.user_exists",
         email: email,
         username: user.username,
@@ -85,8 +89,9 @@ class Invite < ActiveRecord::Base
     expires_at < Time.zone.now
   end
 
-  def link
-    "#{Discourse.base_url}/invites/#{invite_key}"
+  def link(with_email_token: false)
+    with_email_token ? "#{Discourse.base_url}/invites/#{invite_key}?t=#{email_token}"
+                     : "#{Discourse.base_url}/invites/#{invite_key}"
   end
 
   def link_valid?
@@ -167,7 +172,7 @@ class Invite < ActiveRecord::Base
     invite.reload
   end
 
-  def redeem(email: nil, username: nil, name: nil, password: nil, user_custom_fields: nil, ip_address: nil, session: nil)
+  def redeem(email: nil, username: nil, name: nil, password: nil, user_custom_fields: nil, ip_address: nil, session: nil, email_token: nil)
     return if !redeemable?
 
     if is_invite_link? && UserEmail.exists?(email: email)
@@ -183,7 +188,8 @@ class Invite < ActiveRecord::Base
       password: password,
       user_custom_fields: user_custom_fields,
       ip_address: ip_address,
-      session: session
+      session: session,
+      email_token: email_token
     ).redeem
   end
 
@@ -243,6 +249,23 @@ class Invite < ActiveRecord::Base
     Jobs.enqueue(:invite_email, invite_id: self.id)
   end
 
+  def warnings(guardian)
+    @warnings ||= begin
+      warnings = []
+
+      topic = self.topics.first
+      if topic&.read_restricted_category?
+        topic_groups = topic.category.groups
+        if (self.groups & topic_groups).blank?
+          editable_topic_groups = topic_groups.filter { |g| guardian.can_edit_group?(g) }
+          warnings << I18n.t("invite.requires_groups", groups: editable_topic_groups.pluck(:name).join(", "))
+        end
+      end
+
+      warnings
+    end
+  end
+
   def limit_invites_per_day
     RateLimiter.new(invited_by, "invites-per-day", SiteSetting.max_invites_per_day, 1.day.to_i)
   end
@@ -284,6 +307,7 @@ end
 #  max_redemptions_allowed :integer          default(1), not null
 #  redemption_count        :integer          default(0), not null
 #  expires_at              :datetime         not null
+#  email_token             :string
 #
 # Indexes
 #

@@ -249,6 +249,7 @@ class Badge < ActiveRecord::Base
   end
 
   def default_allow_title=(val)
+    return unless self.new_record?
     self.allow_title ||= val
   end
 
@@ -305,6 +306,10 @@ class Badge < ActiveRecord::Base
     end
   end
 
+  def for_beginners?
+    id == Welcome || (badge_grouping_id == BadgeGrouping::GettingStarted && id != NewUserOfTheMonth)
+  end
+
   protected
 
   def ensure_not_system
@@ -335,8 +340,8 @@ end
 #  trigger           :integer
 #  show_posts        :boolean          default(FALSE), not null
 #  system            :boolean          default(FALSE), not null
-#  image             :string(255)
 #  long_description  :text
+#  image_upload_id   :integer
 #
 # Indexes
 #

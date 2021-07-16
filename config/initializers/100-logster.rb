@@ -19,13 +19,15 @@ if Rails.env.development? && RUBY_VERSION.match?(/^2\.5\.[23]/)
 end
 
 if Rails.env.development? && !Sidekiq.server? && ENV["RAILS_LOGS_STDOUT"] == "1"
-  console = ActiveSupport::Logger.new(STDOUT)
-  original_logger = Rails.logger.chained.first
-  console.formatter = original_logger.formatter
-  console.level = original_logger.level
+  Rails.application.config.after_initialize do
+    console = ActiveSupport::Logger.new(STDOUT)
+    original_logger = Rails.logger.chained.first
+    console.formatter = original_logger.formatter
+    console.level = original_logger.level
 
-  unless ActiveSupport::Logger.logger_outputs_to?(original_logger, STDOUT)
-    original_logger.extend(ActiveSupport::Logger.broadcast(console))
+    unless ActiveSupport::Logger.logger_outputs_to?(original_logger, STDOUT)
+      original_logger.extend(ActiveSupport::Logger.broadcast(console))
+    end
   end
 end
 
@@ -90,6 +92,7 @@ Logster.config.subdirectory = "#{GlobalSetting.relative_url_root}/logs"
 
 Logster.config.application_version = Discourse.git_version
 Logster.config.enable_custom_patterns_via_ui = true
+Logster.config.use_full_hostname = true
 Logster.config.enable_js_error_reporting = GlobalSetting.enable_js_error_reporting
 
 store = Logster.store

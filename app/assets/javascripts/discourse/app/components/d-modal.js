@@ -19,6 +19,7 @@ export default Component.extend({
     "role",
     "ariaLabelledby:aria-labelledby",
   ],
+  submitOnEnter: true,
   dismissable: true,
   title: null,
   subtitle: null,
@@ -48,7 +49,7 @@ export default Component.extend({
   @on("didInsertElement")
   setUp() {
     $("html").on("keyup.discourse-modal", (e) => {
-      //only respond to events when the modal is visible
+      // only respond to events when the modal is visible
       if (!this.element.classList.contains("hidden")) {
         if (e.which === 27 && this.dismissable) {
           next(() => this.attrs.closeModal("initiatedByESC"));
@@ -70,6 +71,10 @@ export default Component.extend({
   },
 
   triggerClickOnEnter(e) {
+    if (!this.submitOnEnter) {
+      return false;
+    }
+
     // skip when in a form or a textarea element
     if (
       e.target.closest("form") ||
@@ -124,6 +129,10 @@ export default Component.extend({
       this.set("subtitle", null);
     }
 
+    if ("submitOnEnter" in data) {
+      this.set("submitOnEnter", data.submitOnEnter);
+    }
+
     if ("dismissable" in data) {
       this.set("dismissable", data.dismissable);
     } else {
@@ -132,13 +141,22 @@ export default Component.extend({
 
     this.set("headerClass", data.headerClass || null);
 
-    if (this.element) {
-      const autofocusInputs = this.element.querySelectorAll(
+    if (this.element && data.autoFocus) {
+      let focusTarget = this.element.querySelector(
         ".modal-body input[autofocus]"
       );
 
-      if (autofocusInputs.length) {
-        afterTransition(() => autofocusInputs[0].focus());
+      if (!focusTarget && !this.site.mobileView) {
+        focusTarget = this.element.querySelector(
+          ".modal-body input, .modal-body button, .modal-footer input, .modal-footer button"
+        );
+
+        if (!focusTarget) {
+          focusTarget = this.element.querySelector(".modal-header button");
+        }
+      }
+      if (focusTarget) {
+        afterTransition(() => focusTarget.focus());
       }
     }
   },

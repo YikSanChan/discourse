@@ -625,18 +625,6 @@ RSpec.describe TopicsController do
       expect(response).to be_forbidden
     end
 
-    describe 'forbidden to moderators' do
-      before do
-        sign_in(moderator)
-      end
-      it 'correctly denies' do
-        post "/t/111/change-owner.json", params: {
-          topic_id: 111, username: 'user_a', post_ids: [1, 2, 3]
-        }
-        expect(response).to be_forbidden
-      end
-    end
-
     describe 'forbidden to trust_level_4s' do
       before do
         sign_in(trust_level_4)
@@ -651,80 +639,104 @@ RSpec.describe TopicsController do
     end
 
     describe 'changing ownership' do
-      let!(:editor) { sign_in(admin) }
       fab!(:topic) { Fabricate(:topic) }
       fab!(:user_a) { Fabricate(:user) }
       fab!(:p1) { Fabricate(:post, topic: topic) }
       fab!(:p2) { Fabricate(:post, topic: topic) }
 
-      it "raises an error with a parameter missing" do
-        [
-          { post_ids: [1, 2, 3] },
-          { username: 'user_a' }
-        ].each do |params|
-          post "/t/111/change-owner.json", params: params
-          expect(response.status).to eq(400)
+      describe 'moderator signed in' do
+        let!(:editor) { sign_in(moderator) }
+
+        it "returns 200 when moderators_change_post_ownership is true" do
+          SiteSetting.moderators_change_post_ownership = true
+
+          post "/t/#{topic.id}/change-owner.json", params: {
+            username: user_a.username_lower, post_ids: [p1.id]
+          }
+          expect(response.status).to eq(200)
+        end
+
+        it "returns 403 when moderators_change_post_ownership is false" do
+          SiteSetting.moderators_change_post_ownership = false
+
+          post "/t/#{topic.id}/change-owner.json", params: {
+            username: user_a.username_lower, post_ids: [p1.id]
+          }
+          expect(response.status).to eq(403)
         end
       end
+      describe 'admin signed in' do
+        let!(:editor) { sign_in(admin) }
 
-      it "changes the topic and posts ownership" do
-        post "/t/#{topic.id}/change-owner.json", params: {
-          username: user_a.username_lower, post_ids: [p1.id]
-        }
-        topic.reload
-        p1.reload
-        expect(response.status).to eq(200)
-        expect(topic.user.username).to eq(user_a.username)
-        expect(p1.user.username).to eq(user_a.username)
-      end
+        it "raises an error with a parameter missing" do
+          [
+            { post_ids: [1, 2, 3] },
+            { username: 'user_a' }
+          ].each do |params|
+            post "/t/111/change-owner.json", params: params
+            expect(response.status).to eq(400)
+          end
+        end
 
-      it "changes multiple posts" do
-        post "/t/#{topic.id}/change-owner.json", params: {
-          username: user_a.username_lower, post_ids: [p1.id, p2.id]
-        }
+        it "changes the topic and posts ownership" do
+          post "/t/#{topic.id}/change-owner.json", params: {
+            username: user_a.username_lower, post_ids: [p1.id]
+          }
+          topic.reload
+          p1.reload
+          expect(response.status).to eq(200)
+          expect(topic.user.username).to eq(user_a.username)
+          expect(p1.user.username).to eq(user_a.username)
+        end
 
-        expect(response.status).to eq(200)
+        it "changes multiple posts" do
+          post "/t/#{topic.id}/change-owner.json", params: {
+            username: user_a.username_lower, post_ids: [p1.id, p2.id]
+          }
 
-        p1.reload
-        p2.reload
+          expect(response.status).to eq(200)
 
-        expect(p1.user).to_not eq(nil)
-        expect(p1.reload.user).to eq(p2.reload.user)
-      end
+          p1.reload
+          p2.reload
 
-      it "works with deleted users" do
-        deleted_user = user
-        t2 = Fabricate(:topic, user: deleted_user)
-        p3 = Fabricate(:post, topic: t2, user: deleted_user)
+          expect(p1.user).to_not eq(nil)
+          expect(p1.reload.user).to eq(p2.reload.user)
+        end
 
-        UserDestroyer.new(editor).destroy(deleted_user, delete_posts: true, context: 'test', delete_as_spammer: true)
+        it "works with deleted users" do
+          deleted_user = user
+          t2 = Fabricate(:topic, user: deleted_user)
+          p3 = Fabricate(:post, topic: t2, user: deleted_user)
 
-        post "/t/#{t2.id}/change-owner.json", params: {
-          username: user_a.username_lower, post_ids: [p3.id]
-        }
+          UserDestroyer.new(editor).destroy(deleted_user, delete_posts: true, context: 'test', delete_as_spammer: true)
 
-        expect(response.status).to eq(200)
-        t2.reload
-        p3.reload
-        expect(t2.deleted_at).to be_nil
-        expect(p3.user).to eq(user_a)
-      end
+          post "/t/#{t2.id}/change-owner.json", params: {
+            username: user_a.username_lower, post_ids: [p3.id]
+          }
 
-      it "removes likes by new owner" do
-        now = Time.zone.now
-        freeze_time(now - 1.day)
-        PostActionCreator.like(user_a, p1)
-        p1.reload
-        freeze_time(now)
-        post "/t/#{topic.id}/change-owner.json", params: {
-          username: user_a.username_lower, post_ids: [p1.id]
-        }
-        topic.reload
-        p1.reload
-        expect(response.status).to eq(200)
-        expect(topic.user.username).to eq(user_a.username)
-        expect(p1.user.username).to eq(user_a.username)
-        expect(p1.like_count).to eq(0)
+          expect(response.status).to eq(200)
+          t2.reload
+          p3.reload
+          expect(t2.deleted_at).to be_nil
+          expect(p3.user).to eq(user_a)
+        end
+
+        it "removes likes by new owner" do
+          now = Time.zone.now
+          freeze_time(now - 1.day)
+          PostActionCreator.like(user_a, p1)
+          p1.reload
+          freeze_time(now)
+          post "/t/#{topic.id}/change-owner.json", params: {
+            username: user_a.username_lower, post_ids: [p1.id]
+          }
+          topic.reload
+          p1.reload
+          expect(response.status).to eq(200)
+          expect(topic.user.username).to eq(user_a.username)
+          expect(p1.user.username).to eq(user_a.username)
+          expect(p1.like_count).to eq(0)
+        end
       end
     end
   end
@@ -1010,7 +1022,6 @@ RSpec.describe TopicsController do
 
         topic_user.update!(
           last_read_post_number: 2,
-          highest_seen_post_number: 2
         )
 
         # ensure we have 2 notifications
@@ -1036,7 +1047,7 @@ RSpec.describe TopicsController do
         expect(PostTiming.where(topic: topic, user: user, post_number: 2).exists?).to eq(false)
         expect(PostTiming.where(topic: topic, user: user, post_number: 1).exists?).to eq(true)
 
-        expect(TopicUser.where(topic: topic, user: user, last_read_post_number: 1, highest_seen_post_number: 1).exists?).to eq(true)
+        expect(TopicUser.where(topic: topic, user: user, last_read_post_number: 1).exists?).to eq(true)
 
         user.user_stat.reload
         expect(user.user_stat.first_unread_at).to eq_time(topic.updated_at)
@@ -1051,7 +1062,7 @@ RSpec.describe TopicsController do
         delete "/t/#{topic.id}/timings.json?last=1"
 
         expect(PostTiming.where(topic: topic, user: user, post_number: 1).exists?).to eq(false)
-        expect(TopicUser.where(topic: topic, user: user, last_read_post_number: nil, highest_seen_post_number: nil).exists?).to eq(true)
+        expect(TopicUser.where(topic: topic, user: user, last_read_post_number: nil).exists?).to eq(true)
       end
     end
 
@@ -1268,12 +1279,44 @@ RSpec.describe TopicsController do
           topic.reload
           expect(topic.title).to eq('This is a new title for the topic')
 
+          # emits a topic_edited event but not a post_edited web hook event
+          expect(Jobs::EmitWebHookEvent.jobs.length).to eq(1)
+          job_args = Jobs::EmitWebHookEvent.jobs[0]["args"].first
+
+          expect(job_args["event_name"]).to eq("topic_edited")
+          payload = JSON.parse(job_args["payload"])
+          expect(payload["title"]).to eq('This is a new title for the topic')
+        end
+
+        it 'allows a change of then updating the OP' do
+          topic.update(user: user)
+          topic.first_post.update(user: user)
+
+          put "/t/#{topic.slug}/#{topic.id}.json", params: {
+            title: 'This is a new title for the topic'
+          }
+
+          topic.reload
+          expect(topic.title).to eq('This is a new title for the topic')
+
+          update_params = {
+            post: { raw: 'edited body', edit_reason: 'typo' },
+          }
+          put "/posts/#{topic.first_post.id}.json", params: update_params
+
+          # emits a topic_edited event and a post_edited web hook event
           expect(Jobs::EmitWebHookEvent.jobs.length).to eq(2)
           job_args = Jobs::EmitWebHookEvent.jobs[0]["args"].first
 
+          expect(job_args["event_name"]).to eq("topic_edited")
+          payload = JSON.parse(job_args["payload"])
+          expect(payload["title"]).to eq('This is a new title for the topic')
+
+          job_args = Jobs::EmitWebHookEvent.jobs[1]["args"].first
+
           expect(job_args["event_name"]).to eq("post_edited")
           payload = JSON.parse(job_args["payload"])
-          expect(payload["topic_title"]).to eq('This is a new title for the topic')
+          expect(payload["raw"]).to eq("edited body")
         end
 
         it "returns errors with invalid titles" do
@@ -1767,14 +1810,14 @@ RSpec.describe TopicsController do
       let(:deleted_topic) { Fabricate(:deleted_topic) }
       let(:deleted_secure_topic) { Fabricate(:topic, category: secure_category, deleted_at: 1.day.ago) }
       let(:deleted_private_topic) { Fabricate(:private_message_topic, user: allowed_user, deleted_at: 1.day.ago) }
-      let!(:nonexist_topic_id) { Topic.last.id + 10000 }
+      let!(:nonexistent_topic_id) { Topic.last.id + 10000 }
       fab!(:secure_accessible_topic) { Fabricate(:topic, category: accessible_category) }
 
       shared_examples "various scenarios" do |expected|
         expected.each do |key, value|
           it "returns #{value} for #{key}" do
-            slug = key == :nonexist ? "garbage-slug" : send(key.to_s).slug
-            topic_id = key == :nonexist ? nonexist_topic_id : send(key.to_s).id
+            slug = key == :nonexistent ? "garbage-slug" : send(key.to_s).slug
+            topic_id = key == :nonexistent ? nonexistent_topic_id : send(key.to_s).id
             get "/t/#{slug}/#{topic_id}.json"
             expect(response.status).to eq(value)
           end
@@ -1800,7 +1843,7 @@ RSpec.describe TopicsController do
             deleted_topic: 404,
             deleted_secure_topic: 404,
             deleted_private_topic: 404,
-            nonexist: 404,
+            nonexistent: 404,
             secure_accessible_topic: 404
           }
           include_examples "various scenarios", expected
@@ -1817,7 +1860,7 @@ RSpec.describe TopicsController do
             deleted_topic: 302,
             deleted_secure_topic: 302,
             deleted_private_topic: 302,
-            nonexist: 302,
+            nonexistent: 302,
             secure_accessible_topic: 302
           }
           include_examples "various scenarios", expected
@@ -1835,7 +1878,7 @@ RSpec.describe TopicsController do
             deleted_topic: 404,
             deleted_secure_topic: 404,
             deleted_private_topic: 404,
-            nonexist: 404,
+            nonexistent: 404,
             secure_accessible_topic: 404
           }
           include_examples "various scenarios", expected
@@ -1853,7 +1896,7 @@ RSpec.describe TopicsController do
             deleted_topic: 404,
             deleted_secure_topic: 404,
             deleted_private_topic: 404,
-            nonexist: 404,
+            nonexistent: 404,
             secure_accessible_topic: 404
           }
           include_examples "various scenarios", expected
@@ -1871,7 +1914,7 @@ RSpec.describe TopicsController do
             deleted_topic: 200,
             deleted_secure_topic: 404,
             deleted_private_topic: 404,
-            nonexist: 404,
+            nonexistent: 404,
             secure_accessible_topic: 404
           }
           include_examples "various scenarios", expected
@@ -1889,7 +1932,7 @@ RSpec.describe TopicsController do
             deleted_topic: 200,
             deleted_secure_topic: 200,
             deleted_private_topic: 200,
-            nonexist: 404,
+            nonexistent: 404,
             secure_accessible_topic: 200
           }
           include_examples "various scenarios", expected
@@ -1909,7 +1952,7 @@ RSpec.describe TopicsController do
             deleted_topic: 410,
             deleted_secure_topic: 403,
             deleted_private_topic: 403,
-            nonexist: 404,
+            nonexistent: 404,
             secure_accessible_topic: 403
           }
           include_examples "various scenarios", expected
@@ -1926,7 +1969,7 @@ RSpec.describe TopicsController do
             deleted_topic: 302,
             deleted_secure_topic: 302,
             deleted_private_topic: 302,
-            nonexist: 302,
+            nonexistent: 302,
             secure_accessible_topic: 302
           }
           include_examples "various scenarios", expected
@@ -1944,7 +1987,7 @@ RSpec.describe TopicsController do
             deleted_topic: 410,
             deleted_secure_topic: 403,
             deleted_private_topic: 403,
-            nonexist: 404,
+            nonexistent: 404,
             secure_accessible_topic: 403
           }
           include_examples "various scenarios", expected
@@ -1962,7 +2005,7 @@ RSpec.describe TopicsController do
             deleted_topic: 410,
             deleted_secure_topic: 410,
             deleted_private_topic: 410,
-            nonexist: 404,
+            nonexistent: 404,
             secure_accessible_topic: 403
           }
           include_examples "various scenarios", expected
@@ -1980,7 +2023,7 @@ RSpec.describe TopicsController do
             deleted_topic: 200,
             deleted_secure_topic: 403,
             deleted_private_topic: 403,
-            nonexist: 404,
+            nonexistent: 404,
             secure_accessible_topic: 403
           }
           include_examples "various scenarios", expected
@@ -1998,7 +2041,7 @@ RSpec.describe TopicsController do
             deleted_topic: 200,
             deleted_secure_topic: 200,
             deleted_private_topic: 200,
-            nonexist: 404,
+            nonexistent: 404,
             secure_accessible_topic: 200
           }
           include_examples "various scenarios", expected
@@ -2125,6 +2168,28 @@ RSpec.describe TopicsController do
         get "/t/#{topic.slug}/#{topic.id}/#{post_number}.json"
         expect(response.status).to eq(200)
         expect(extract_post_stream).to eq(@post_ids[-2..-1])
+
+        TopicView.stubs(:chunk_size).returns(3)
+
+        get "/t/#{topic.slug}/#{topic.id}.json", params: { page: 1 }
+        expect(response.status).to eq(200)
+        expect(extract_post_stream).to eq(@post_ids[0..2])
+
+        get "/t/#{topic.slug}/#{topic.id}.json", params: { page: 2 }
+        expect(response.status).to eq(200)
+        expect(extract_post_stream).to eq(@post_ids[3..3])
+
+        get "/t/#{topic.slug}/#{topic.id}.json", params: { page: 3 }
+        expect(response.status).to eq(404)
+
+        TopicView.stubs(:chunk_size).returns(4)
+
+        get "/t/#{topic.slug}/#{topic.id}.json", params: { page: 1 }
+        expect(response.status).to eq(200)
+        expect(extract_post_stream).to eq(@post_ids[0..3])
+
+        get "/t/#{topic.slug}/#{topic.id}.json", params: { page: 2 }
+        expect(response.status).to eq(404)
       end
     end
 
@@ -2436,6 +2501,29 @@ RSpec.describe TopicsController do
           expect(body["post_ids"]).to eq([post2.id])
         end
       end
+
+      describe 'custom filters' do
+        fab!(:post2) { Fabricate(:post, topic: topic, percent_rank: 0.2) }
+        fab!(:post3) { Fabricate(:post, topic: topic, percent_rank: 0.5) }
+        it 'should return the right posts' do
+          TopicView.add_custom_filter("percent") do |posts, topic_view|
+            posts.where(percent_rank: 0.5)
+          end
+
+          get "/t/#{topic.id}.json", params: {
+            post_number: post.post_number,
+            filter: 'percent'
+          }
+
+          expect(response.status).to eq(200)
+
+          body = response.parsed_body
+
+          expect(body["post_stream"]["posts"].map { |p| p["id"] }).to eq([post3.id])
+        ensure
+          TopicView.instance_variable_set(:@custom_filters, {})
+        end
+      end
     end
   end
 
@@ -2539,6 +2627,44 @@ RSpec.describe TopicsController do
       topic.trash!
       get "/t/foo/#{topic.id}.rss"
       expect(response.status).to eq(404)
+    end
+  end
+
+  describe '#invite_notify' do
+    let(:user2) { Fabricate(:user) }
+
+    it 'does not notify same user multiple times' do
+      sign_in(user)
+
+      expect { post "/t/#{topic.id}/invite-notify.json", params: { usernames: [user2.username] } }
+        .to change { Notification.count }.by(1)
+      expect(response.status).to eq(200)
+
+      expect { post "/t/#{topic.id}/invite-notify.json", params: { usernames: [user2.username] } }
+        .to change { Notification.count }.by(0)
+      expect(response.status).to eq(200)
+
+      freeze_time 1.day.from_now
+
+      expect { post "/t/#{topic.id}/invite-notify.json", params: { usernames: [user2.username] } }
+        .to change { Notification.count }.by(1)
+      expect(response.status).to eq(200)
+    end
+
+    it 'does not let regular users to notify multiple users' do
+      sign_in(user)
+
+      expect { post "/t/#{topic.id}/invite-notify.json", params: { usernames: [admin.username, user2.username] } }
+        .to change { Notification.count }.by(0)
+      expect(response.status).to eq(400)
+    end
+
+    it 'lets staff to notify multiple users' do
+      sign_in(admin)
+
+      expect { post "/t/#{topic.id}/invite-notify.json", params: { usernames: [user.username, user2.username] } }
+        .to change { Notification.count }.by(2)
+      expect(response.status).to eq(200)
     end
   end
 
@@ -2708,6 +2834,17 @@ RSpec.describe TopicsController do
         }
       end
 
+      it "raises an error if topic_ids is provided and it is not an array" do
+        put "/topics/bulk.json", params: {
+          topic_ids: "1", operation: operation
+        }
+        expect(response.parsed_body["errors"].first).to match(/Expecting topic_ids to contain a list/)
+        put "/topics/bulk.json", params: {
+          topic_ids: [1], operation: operation
+        }
+        expect(response.parsed_body["errors"]).to eq(nil)
+      end
+
       it "respects the tracked parameter" do
         # untracked topic
         CategoryUser.set_notification_level_for_category(user,
@@ -2848,7 +2985,7 @@ RSpec.describe TopicsController do
         expect(user.user_stat.new_since.to_date).to eq(old_date.to_date)
       end
 
-      it "creates topic user records for each unread topic" do
+      it "creates dismissed topic user records for each new topic" do
         sign_in(user)
         user.user_stat.update_column(:new_since, 2.years.ago)
 
@@ -2856,11 +2993,57 @@ RSpec.describe TopicsController do
         CategoryUser.set_notification_level_for_category(user,
                                                      NotificationLevels.all[:tracking],
                                                      tracked_category.id)
-        tracked_topic = create_post.topic
-        tracked_topic.update!(category_id: tracked_category.id)
+        tracked_topic = create_post(category: tracked_category).topic
 
         create_post # This is a new post, but is not tracked so a record will not be created for it
-        expect { put "/topics/reset-new.json?tracked=true" }.to change { DismissedTopicUser.where(user_id: user.id).count }.by(1)
+        expect do
+          put "/topics/reset-new.json?tracked=true"
+        end.to change {
+          DismissedTopicUser.where(user_id: user.id, topic_id: tracked_topic.id).count
+        }.by(1)
+      end
+
+      it "creates dismissed topic user records if there are > 30 (default pagination) topics" do
+        sign_in(user)
+        tracked_category = Fabricate(:category)
+        CategoryUser.set_notification_level_for_category(user,
+                                                     NotificationLevels.all[:tracking],
+                                                     tracked_category.id)
+
+        topic_ids = []
+        5.times do
+          topic_ids << create_post(category: tracked_category).topic.id
+        end
+
+        expect do
+          stub_const(TopicQuery, "DEFAULT_PER_PAGE_COUNT", 2) do
+            put "/topics/reset-new.json?tracked=true"
+          end
+        end.to change {
+          DismissedTopicUser.where(user_id: user.id, topic_id: topic_ids).count
+        }.by(5)
+      end
+
+      it "creates dismissed topic user records if there are > 30 (default pagination) topics and topic_ids are provided" do
+        sign_in(user)
+        tracked_category = Fabricate(:category)
+        CategoryUser.set_notification_level_for_category(user,
+                                                     NotificationLevels.all[:tracking],
+                                                     tracked_category.id)
+
+        topic_ids = []
+        5.times do
+          topic_ids << create_post(category: tracked_category).topic.id
+        end
+        dismissing_topic_ids = topic_ids.sample(4)
+
+        expect do
+          stub_const(TopicQuery, "DEFAULT_PER_PAGE_COUNT", 2) do
+            put "/topics/reset-new.json?tracked=true", params: { topic_ids: dismissing_topic_ids }
+          end
+        end.to change {
+          DismissedTopicUser.where(user_id: user.id, topic_id: topic_ids).count
+        }.by(4)
       end
     end
 
@@ -2882,7 +3065,7 @@ RSpec.describe TopicsController do
       it 'dismisses topics for main category and subcategories' do
         sign_in(user)
 
-        TopicTrackingState.expects(:publish_dismiss_new).with(user.id, topic_ids: [subcategory_topic.id, category_topic.id])
+        TopicTrackingState.expects(:publish_dismiss_new).with(user.id, topic_ids: [category_topic.id, subcategory_topic.id])
 
         put "/topics/reset-new.json?category_id=#{category.id}&include_subcategories=true"
 
@@ -2916,6 +3099,69 @@ RSpec.describe TopicsController do
         TopicTrackingState.expects(:publish_dismiss_new).with(user.id, topic_ids: [tag_and_category_topic.id])
         put "/topics/reset-new.json?tag_id=#{tag.name}&category_id=#{category.id}"
         expect(DismissedTopicUser.where(user_id: user.id).pluck(:topic_id)).to eq([tag_and_category_topic.id])
+      end
+    end
+
+    context "specific topics" do
+      fab!(:topic2) { Fabricate(:topic) }
+      fab!(:topic3) { Fabricate(:topic) }
+
+      it "updates the `new_since` date" do
+        sign_in(user)
+
+        old_date = 2.years.ago
+        user.user_stat.update_column(:new_since, old_date)
+        user.update_column(:created_at, old_date)
+
+        TopicTrackingState.expects(:publish_dismiss_new).with(user.id, topic_ids: [topic2.id, topic3.id]).at_least_once
+
+        put "/topics/reset-new.json", { params: { topic_ids: [topic2.id, topic3.id] } }
+        expect(response.status).to eq(200)
+        user.reload
+        expect(user.user_stat.new_since.to_date).not_to eq(old_date.to_date)
+        expect(DismissedTopicUser.where(user_id: user.id).pluck(:topic_id)).to match_array([topic2.id, topic3.id])
+      end
+
+      it "raises an error if topic_ids is provided and it is not an array" do
+        sign_in(user)
+        put "/topics/reset-new.json", params: { topic_ids: topic2.id }
+        expect(response.parsed_body["errors"].first).to match(/Expecting topic_ids to contain a list/)
+        put "/topics/reset-new.json", params: { topic_ids: [topic2.id] }
+        expect(response.parsed_body["errors"]).to eq(nil)
+      end
+
+      describe "when tracked param is true" do
+        it "does not update user_stat.new_since and does not dismiss untracked topics" do
+          sign_in(user)
+
+          old_date = 2.years.ago
+          user.user_stat.update_column(:new_since, old_date)
+
+          put "/topics/reset-new.json?tracked=true", { params: { topic_ids: [topic2.id, topic3.id] } }
+          expect(response.status).to eq(200)
+          user.reload
+          expect(user.user_stat.new_since.to_date).to eq(old_date.to_date)
+          expect(DismissedTopicUser.where(user_id: user.id).pluck(:topic_id)).to be_empty
+        end
+
+        it "creates topic user records for each unread topic" do
+          sign_in(user)
+          user.user_stat.update_column(:new_since, 2.years.ago)
+
+          tracked_category = Fabricate(:category)
+          CategoryUser.set_notification_level_for_category(user,
+                                                           NotificationLevels.all[:tracking],
+                                                           tracked_category.id)
+          tracked_topic = create_post.topic
+          tracked_topic.update!(category_id: tracked_category.id)
+          topic2.update!(category_id: tracked_category.id)
+
+          create_post # This is a new post, but is not tracked so a record will not be created for it
+          expect do
+            put "/topics/reset-new.json?tracked=true", { params: { topic_ids: [tracked_topic.id, topic2.id, topic3.id] } }
+          end.to change { DismissedTopicUser.where(user_id: user.id).count }.by(2)
+          expect(DismissedTopicUser.where(user_id: user.id).pluck(:topic_id)).to match_array([tracked_topic.id, topic2.id])
+        end
       end
     end
   end
@@ -3715,7 +3961,7 @@ RSpec.describe TopicsController do
         freeze_time page3_time
         Fabricate(:post, topic: topic)
 
-        # ugly, but no inteface to set this and we don't want to create
+        # ugly, but no interface to set this and we don't want to create
         # 100 posts to test this thing
         TopicView.stubs(:chunk_size).returns(2)
 
@@ -3791,7 +4037,7 @@ RSpec.describe TopicsController do
         end
       end
 
-      it "should fail for non-existend topic" do
+      it "should fail for non-existent topic" do
         max_id = Topic.maximum(:id)
         sign_in(admin)
         put "/t/#{max_id + 1}/reset-bump-date.json"

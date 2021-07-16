@@ -17,6 +17,7 @@ import { setupS3CDN, setupURL } from "discourse-common/lib/get-url";
 import Application from "../app";
 import MessageBus from "message-bus-client";
 import PreloadStore from "discourse/lib/preload-store";
+import { resetSettings as resetThemeSettings } from "discourse/lib/theme-settings-store";
 import QUnit from "qunit";
 import { ScrollingDOMMethods } from "discourse/mixins/scrolling";
 import Session from "discourse/models/session";
@@ -151,13 +152,29 @@ function setupTestsCommon(application, container, config) {
     },
   });
 
+  let setupData;
+  const setupDataElement = document.getElementById("data-discourse-setup");
+  if (setupDataElement) {
+    setupData = setupDataElement.dataset;
+    setupDataElement.remove();
+  }
   QUnit.testStart(function (ctx) {
     bootbox.$body = $("#ember-testing");
     let settings = resetSettings();
+    resetThemeSettings();
 
     if (config) {
       // Ember CLI testing environment
       app = createApplication(config, settings);
+    }
+
+    const cdn = setupData ? setupData.cdn : null;
+    const baseUri = setupData ? setupData.baseUri : "";
+    setupURL(cdn, "http://localhost:3000", baseUri);
+    if (setupData && setupData.s3BaseUrl) {
+      setupS3CDN(setupData.s3BaseUrl, setupData.s3Cdn);
+    } else {
+      setupS3CDN(null, null);
     }
 
     server = createPretender;
@@ -197,10 +214,12 @@ function setupTestsCommon(application, container, config) {
 
     applyPretender(ctx.module, server, pretenderHelpers());
 
-    setupURL(null, "http://localhost:3000", "");
-    setupS3CDN(null, null);
-
     Session.resetCurrent();
+    if (setupData) {
+      const session = Session.current();
+      session.markdownItURL = setupData.markdownItUrl;
+      session.highlightJsPath = setupData.highlightJsPath;
+    }
     User.resetCurrent();
     let site = resetSite(settings);
     createHelperContext({
@@ -228,7 +247,7 @@ function setupTestsCommon(application, container, config) {
 
     if (!setupApplicationTest) {
       // ensures any event not removed is not leaking between tests
-      // most likely in intialisers, other places (controller, component...)
+      // most likely in initializers, other places (controller, component...)
       // should be fixed in code
       clearAppEventsCache(getOwner(this));
     }
@@ -251,6 +270,7 @@ function setupTestsCommon(application, container, config) {
   let pluginPath = getUrlParameter("qunit_single_plugin")
     ? "/" + getUrlParameter("qunit_single_plugin") + "/"
     : "/plugins/";
+
   if (getUrlParameter("qunit_disable_auto_start") === "1") {
     QUnit.config.autostart = false;
   }
@@ -260,7 +280,11 @@ function setupTestsCommon(application, container, config) {
     let regex = new RegExp(pluginPath);
     let isPlugin = regex.test(entry);
 
-    if (isTest && (!skipCore || isPlugin)) {
+    if (!isTest) {
+      return;
+    }
+
+    if (!skipCore || isPlugin) {
       require(entry, null, null, true);
     }
   });

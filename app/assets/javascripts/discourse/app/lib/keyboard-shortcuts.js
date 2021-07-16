@@ -86,9 +86,9 @@ const DEFAULT_BINDINGS = {
   t: { postAction: "replyAsNewTopic" },
   u: { handler: "goBack", anonymous: true },
   "x r": {
-    click: "#dismiss-new,#dismiss-new-top,#dismiss-posts,#dismiss-posts-top",
-  }, // dismiss new/posts
-  "x t": { click: "#dismiss-topics,#dismiss-topics-top" }, // dismiss topics
+    click: "#dismiss-new-bottom,#dismiss-new-top",
+  }, // dismiss new
+  "x t": { click: "#dismiss-topics-bottom,#dismiss-topics-top" }, // dismiss topics
 };
 
 const animationDuration = 100;
@@ -100,7 +100,7 @@ function preventKeyboardEvent(event) {
 
 export default {
   init(keyTrapper, container) {
-    this.keyTrapper = keyTrapper;
+    this.keyTrapper = new keyTrapper();
     this.container = container;
     this._stopCallback();
 
@@ -168,6 +168,12 @@ export default {
     if (this.isTornDown()) {
       return;
     }
+
+    if (!combinations) {
+      this.keyTrapper.paused = true;
+      return;
+    }
+
     combinations.forEach((combo) => this.keyTrapper.unbind(combo));
   },
 
@@ -176,10 +182,12 @@ export default {
     if (this.isTornDown()) {
       return;
     }
-    // if the keytrapper has already been torn down this will error
-    if (this.keyTrapper == null) {
+
+    if (!combinations) {
+      this.keyTrapper.paused = false;
       return;
     }
+
     combinations.forEach((combo) => this.bindKey(combo));
   },
 
@@ -210,7 +218,7 @@ export default {
   //   'c': createTopic
   // }
   unbind(combinations) {
-    this.pause(Object.keys(combinations));
+    Object.keys(combinations).forEach((combo) => this.keyTrapper.unbind(combo));
   },
 
   toggleBookmark(event) {
@@ -541,7 +549,11 @@ export default {
         // If effective, prevent default.
         e.preventDefault();
       }
-      $sel.click();
+
+      // If there is more than one match for the selector, just click
+      // the first one, we don't want to click multiple things from one
+      // shortcut.
+      $sel[0].click();
     });
   },
 
@@ -758,20 +770,21 @@ export default {
   },
 
   _stopCallback() {
-    const oldStopCallback = this.keyTrapper.prototype.stopCallback;
+    const prototype = Object.getPrototypeOf(this.keyTrapper);
+    const oldStopCallback = prototype.stopCallback;
 
-    this.keyTrapper.prototype.stopCallback = function (
-      e,
-      element,
-      combo,
-      sequence
-    ) {
+    prototype.stopCallback = function (e, element, combo, sequence) {
+      if (this.paused) {
+        return true;
+      }
+
       if (
         (combo === "ctrl+f" || combo === "command+f") &&
         element.id === "search-term"
       ) {
         return false;
       }
+
       return oldStopCallback.call(this, e, element, combo, sequence);
     };
   },
